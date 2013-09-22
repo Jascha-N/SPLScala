@@ -1,0 +1,312 @@
+    ldrr R6 HP
+    bsr __init
+    ldrr R7 HP
+    bsr main
+    halt
+
+__alloc:
+    lds 0               ; reserve space for result
+    ldr R7
+    sts -2              ; copy block pointer to result
+    ldr R7
+__alloc_loop:
+    ldaa 3
+    lds 0
+    lda 0
+    ldc 0x00FFFFFF
+    and
+    ldc 0
+    eq
+    brf __alloc_loop    ; find an unused block starting at the next block 
+    lds 0
+    str R7              ; increment block pointer with block size 
+    ldr HP
+    le
+    brt __alloc_ret
+    ldrr HP R7          ; increment heap pointer if block pointer exceeds it
+__alloc_ret:
+    ret
+
+__addref:
+    lds -1              ; copy argument to top
+    ldc 0
+    eq
+    brt __addref_ret    ; check for null 
+    lds -1              ; copy argument to top
+    lda 0 
+    ldc 0x00FFFFFF
+    and                 ; load reference count
+    ldaa 1              ; increment reference count by one  
+    lds -2              ; copy argument to top
+    lda 0
+    ldc 0xFF000000
+    and                 ; load flags
+    or                  ; combine
+    lds -2              ; copy argument to top
+    sta 0               ; store new reference count
+__addref_ret:
+    sts -1
+    ret
+    
+__release:
+    lds -1              ; copy argument to top
+    ldc 0
+    eq
+    brt __release_ret   ; check for null 
+    lds -1              ; copy argument to top
+    lda 0 
+    ldc 0x00FFFFFF
+    and                 ; load reference count
+    ldaa -1             ; decrement reference count by one 
+    lds 0               ; copy reference count
+    lds -3              ; copy argument to top
+    lda 0               
+    ldc 0xFF000000
+    and                 ; load flags
+    or                  ; combine
+    lds -3              ; copy argument to top
+    sta 0               ; store new reference count
+    ldc 0
+    gt    
+    brt __release_ret   ; if new reference count > 0
+    lds -1
+    bsr __free 
+__release_ret:    
+    sts -1
+    ret
+    
+__free:
+    lds -1
+    lda 0
+    lds 0
+    ldc 0x10000000
+    and
+    ldc 0
+    eq
+    brt __free_skip_left
+    lds -2
+    lda 1
+    bsr __release   
+__free_skip_left:
+    ldc 0x01000000
+    and
+    ldc 0
+    eq
+    brt __free_skip_right
+    lds -1
+    lda 2
+    bsr __release
+__free_skip_right:
+    ldr R7
+    lds -2              ; copy argument to top
+    lt
+    brt __free_ret      ; if block pointer < arg
+    lds -1              ; copy argument to top
+    str R7              ; set block pointer to arg
+__free_ret:
+    sts -1
+    ret
+
+__addref_left:
+    lds -1
+    lda 0
+    ldc 0x10000000
+    and
+    ldc 0
+    eq
+    brt __addref_left_ret
+    lds -1
+    lda 1
+    bsr __addref
+__addref_left_ret:
+    sts -1
+    ret
+
+__addref_right:
+    lds -1
+    lda 0
+    ldc 0x01000000
+    and
+    ldc 0
+    eq
+    brt __addref_right_ret
+    lds -1
+    lda 2
+    bsr __addref
+__addref_right_ret:
+    sts -1
+    ret
+
+printchar:
+    lds -1
+    trap 1
+    sts -1
+    ret
+
+println:
+    ldc 0x0A
+    trap 1
+    ret
+
+print__I:
+__print__I:
+    lds -1
+    trap 0
+    sts -1
+    ret
+
+print__B:
+__print__B:
+    lds -1
+    ldc 0
+    eq
+    brt __print_false
+    #print "True"
+    bra __print_ret
+__print_false:
+    #print "False"
+__print_ret:
+    sts -1
+    ret
+
+print__T:
+    lds -1
+    bsr __print__T
+    #release -1
+    sts -1
+    ret
+
+__print__T:
+    lds -1
+    ldc 0
+    eq
+    brf __print_tuple_initialized
+    #print "(?, ?)"
+    bra __print_tuple_ret
+__print_tuple_initialized:
+    #print "("
+    lds -1
+    bsr __print_left_member
+    #print ", "
+    lds -1
+    bsr __print_right_member
+    #print ")"
+__print_tuple_ret:
+    sts -1
+    ret
+
+print__L:
+    lds -1
+    bsr __print__L
+    #release -1
+    sts -1
+    ret
+
+__print__L:
+    lds -1
+    ldc 0
+    eq
+    brf __print_list_nonempty
+    #print "[]"
+    bra __print_list_ret
+__print_list_nonempty:
+    lds -1
+    bsr __print_left_member
+    #print " : "
+    lds -1
+    bsr __print_right_member
+__print_list_ret:
+    sts -1
+    ret
+
+__print_left_member:
+    lds -1
+    lda 0
+    ldc 0xF0000000
+    and
+    ldc 0x10000000
+    div
+    lds -2
+    lda 1
+    bra __print_member
+__print_right_member:
+    lds -1
+    lda 0
+    ldc 0x0F000000
+    and
+    ldc 0x01000000
+    div
+    lds -2
+    lda 2
+__print_member:
+    ldc __print__L
+    ldc __print__B
+    ldc __print__T
+    ldc __print__I
+    ldsa 0
+    lds -6
+    sub
+    lda 0
+    sts -4
+    ajs -3
+    jsr
+    ajs -1
+    sts -1
+    ret
+
+isEmpty:
+    lds -1              ; copy argument to top
+    ldc 0
+    eq
+    #release -2
+    sts -2
+    ret
+    
+head:
+    lds -1
+    ldc 0
+    eq
+    brf __fst_initialized
+    #print "Error: head of empty list\n"
+    halt
+
+
+tail:
+    lds -1
+    ldc 0
+    eq
+    brf __snd_initialized
+    #print "Error: tail of empty list\n"
+    halt
+    
+fst:
+    lds -1
+    ldc 0
+    eq
+    brf __fst_initialized
+    ldc 0
+    bra __fst_ret
+__fst_initialized:
+    lds -1
+    lda 1
+__fst_ret:
+    #addref_left -2
+    #release -2
+    sts -2
+    ret   
+    
+snd:
+    lds -1
+    ldc 0
+    eq
+    brf __snd_initialized
+    ldc 0
+    bra __fst_ret
+__snd_initialized:
+    lds -1
+    lda 2
+__snd_ret:
+    #addref_right -2
+    #release -2
+    sts -2
+    ret 
